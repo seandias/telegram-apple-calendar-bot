@@ -29,6 +29,8 @@ def p(text):
     ("Flight 2027-01-15 6:45am", "Flight", (2027, 1, 15, 6, 45), (2027, 1, 15, 7, 45)),
     ("Review next week wed 3-4pm", "Review", (2026, 11, 11, 15, 0), (2026, 11, 11, 16, 0)),
     ("Lunch with team 12 noon", "Lunch with team", (2026, 11, 3, 12, 0), (2026, 11, 3, 13, 0)),
+    ("Interview next weds 2-3pm", "Interview", (2026, 11, 4, 14, 0), (2026, 11, 4, 15, 0)),
+    ("Lecture thurs 10am", "Lecture", (2026, 11, 5, 10, 0), (2026, 11, 5, 11, 0)),
 ])
 def test_timed(text, title, start, end):
     ev = p(text)

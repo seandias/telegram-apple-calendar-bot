@@ -11,11 +11,11 @@ from datetime import date, datetime, time, timedelta
 WEEKDAYS = {
     "monday": 0, "mon": 0,
     "tuesday": 1, "tue": 1, "tues": 1,
-    "wednesday": 2, "wed": 2,
-    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
+    "wednesday": 2, "wed": 2, "weds": 2, "wednes": 2, "wensday": 2, "wednesday's": 2,
+    "thursday": 3, "thu": 3, "thur": 3, "thurs": 3, "thursady": 3,
     "friday": 4, "fri": 4,
-    "saturday": 5, "sat": 5,
-    "sunday": 6, "sun": 6,
+    "saturday": 5, "sat": 5, "sats": 5,
+    "sunday": 6, "sun": 6, "suns": 6,
 }
 MONTHS = {
     "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
