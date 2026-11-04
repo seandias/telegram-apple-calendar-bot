@@ -19,7 +19,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                           ContextTypes, MessageHandler, filters)
 
-from event_parser import ParseError, _extract_date, parse_event
+from event_parser import ParseError, _extract_date, _extract_range, parse_event
 from icloud_calendar import REPEAT_RULES, ICloudCalendar
 
 load_dotenv()
@@ -134,12 +134,19 @@ async def delete_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, q: str
         else:
             matches = await asyncio.to_thread(cal.find_occurrences, today,
                                               today + timedelta(days=DELETE_WINDOW_DAYS), q)
-            if not matches:  # maybe they included a date: "delete football tue"
-                day, _, rest = _extract_date(q, today.date())
-                if day is not None:
-                    d0 = datetime.combine(day, datetime.min.time(), tzinfo=TZ)
-                    matches = await asyncio.to_thread(cal.find_occurrences, d0,
-                                                      d0 + timedelta(days=1), rest.strip() or None)
+            if not matches:  # maybe they included a date: "delete football tue" / "delete tw 16-21 dec"
+                try:
+                    first, last, rest = _extract_range(q, today.date())
+                    if first is None:
+                        first, _, rest = _extract_date(q, today.date())
+                        last = first
+                except ParseError:
+                    first = None
+                if first is not None:
+                    d0 = datetime.combine(first, datetime.min.time(), tzinfo=TZ)
+                    d1 = datetime.combine(last, datetime.min.time(), tzinfo=TZ) + timedelta(days=1)
+                    matches = await asyncio.to_thread(cal.find_occurrences, d0, d1,
+                                                      rest.strip() or None)
     except Exception as exc:
         log.exception("delete search failed")
         await update.message.reply_text(f"Couldn't read iCloud: {exc}")

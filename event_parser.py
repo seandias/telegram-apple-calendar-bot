@@ -49,8 +49,8 @@ _MO = "|".join(sorted(MONTHS, key=len, reverse=True))
 DATE_PATTERNS = [
     ("iso", re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")),
     ("dmy", re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")),
-    ("d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),
-    ("mon_d", re.compile(rf"\b({_MO})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\b(?:,?\s+(\d{{4}}))?", re.I)),
+    ("d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s*({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),
+    ("mon_d", re.compile(rf"\b({_MO})\.?\s*(\d{{1,2}})(?:st|nd|rd|th)?\b(?:,?\s+(\d{{4}}))?", re.I)),
     ("rel", re.compile(r"\b(today|tonight|tomorrow|tmr|tmrw|tomoro|day after tomorrow)\b", re.I)),
     ("in_n", re.compile(r"\bin\s+(\d+)\s+(day|days|week|weeks)\b", re.I)),
     ("wday", re.compile(rf"\b(next\s+week\s+|next\s+|this\s+|coming\s+)?({_WD})\b\.?", re.I)),
@@ -123,12 +123,12 @@ def _extract_date(text: str, today: date):
 
 _SEP = r"\s*(?:-|–|—|to|till|until)\s*"
 _DM = r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?"
-_DMON = rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MO})\.?(?:\s+(\d{{4}}))?"
+_DMON = rf"(\d{{1,2}})(?:st|nd|rd|th)?\s*({_MO})(?![a-z])\.?(?:\s+(\d{{4}}))?"
 RANGE_PATTERNS = [
     ("dm_dm", re.compile(rf"\b{_DM}{_SEP}{_DM}\b", re.I)),                 # 21/12-7/1
     ("dmon_dmon", re.compile(rf"\b{_DMON}{_SEP}{_DMON}\b", re.I)),         # 21 dec - 7 jan
-    ("d_d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?{_SEP}(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),  # 16-21 dec
-    ("mon_d_d", re.compile(rf"\b({_MO})\.?\s+(\d{{1,2}}){_SEP}(\d{{1,2}})\b(?!\s*(?:am|pm|:))", re.I)),  # dec 16-21
+    ("d_d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?{_SEP}(\d{{1,2}})(?:st|nd|rd|th)?\s*({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),  # 16-21 dec
+    ("mon_d_d", re.compile(rf"\b({_MO})\.?\s*(\d{{1,2}}){_SEP}(\d{{1,2}})\b(?!\s*(?:am|pm|:))", re.I)),  # dec 16-21
 ]
 
 

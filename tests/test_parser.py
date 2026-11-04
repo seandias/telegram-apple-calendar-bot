@@ -90,3 +90,21 @@ def test_time_range_not_mistaken_for_trip():
 ])
 def test_next_weekday(now, text, expected):
     assert parse_event(text, datetime(*now)).start.date() == datetime(*expected).date()
+
+
+@pytest.mark.parametrize("text,first,last", [
+    ("TW 16dec-21dec", (2026, 12, 16), (2026, 12, 21)),
+    ("TW 16dec to 21 dec", (2026, 12, 16), (2026, 12, 21)),
+    ("TW 16 dec-21dec", (2026, 12, 16), (2026, 12, 21)),
+    ("TW dec16-21", (2026, 12, 16), (2026, 12, 21)),
+])
+def test_trip_no_spaces(text, first, last):
+    from datetime import timedelta
+    ev = p(text)
+    assert ev.title == "TW" and ev.all_day
+    assert ev.start == datetime(*first) and ev.end - timedelta(days=1) == datetime(*last)
+
+
+def test_single_date_no_space():
+    ev = p("Dentist 12nov 3pm")
+    assert ev.title == "Dentist" and ev.start == datetime(2026, 11, 12, 15, 0)
