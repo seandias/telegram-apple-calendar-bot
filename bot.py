@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                           ContextTypes, MessageHandler, filters)
 
@@ -109,7 +109,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• In Korea 21/12-7/1 (trip banner, never a clash)\n\n"
         "To delete: send “delete footie” (or delete + part of the title, optionally a date). "
         "I'll show matches and ask before deleting anything.\n\n"
-        "/week shows the next 7 days, /where shows which trip you're on "
+        "/today, /tomorrow, /week and /month show what's coming up, /day 18 dec (or /18dec, /fri) shows one day. /where shows which trip you're on "
         "(e.g. /where 18 dec), /undo removes the last event I added."
     )
 
@@ -369,20 +369,17 @@ def _trip_line(o) -> str:
     return f"📍 {html.escape(o.title)} ({o.start:%-d %b} to {last:%-d %b})"
 
 
-async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not allowed(update):
-        return
-    now = datetime.now(TZ)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+async def send_agenda(update: Update, start: datetime, end: datetime, empty: str):
     try:
         cal = await asyncio.to_thread(get_calendar)
-        events = await asyncio.to_thread(cal.events_between, now, now + timedelta(days=7))
-        trips = _trips(await asyncio.to_thread(cal.find_occurrences, today, today + timedelta(days=7)))
+        events = await asyncio.to_thread(cal.events_between, start, end)
+        day0 = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        trips = _trips(await asyncio.to_thread(cal.find_occurrences, day0, end))
     except Exception as exc:
         await update.message.reply_text(f"Couldn't read iCloud: {exc}")
         return
     if not events and not trips:
-        await update.message.reply_text("Nothing in the next 7 days.")
+        await update.message.reply_text(empty)
         return
     lines = [_trip_line(t) for t in trips]
     last_day = None
@@ -391,9 +388,93 @@ async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if day != last_day:
             lines.append(f"\n<b>{day}</b>")
             last_day = day
-        when = "all day" if e.all_day else f"{e.start:%-I:%M%p}".replace(":00", "").lower()
+        if e.all_day:
+            when = "all day"
+        else:
+            when = f"{e.start:%-I:%M%p}–{e.end:%-I:%M%p}".replace(":00", "").lower()
         lines.append(f"• {when}  {html.escape(e.title)}")
-    await update.message.reply_text("\n".join(lines).strip(), parse_mode="HTML")
+    # Telegram caps messages at 4096 chars; send in chunks
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3800:
+            await update.message.reply_text(chunk.strip(), parse_mode="HTML")
+            chunk = ""
+        chunk += line + "\n"
+    if chunk.strip():
+        await update.message.reply_text(chunk.strip(), parse_mode="HTML")
+
+
+def _midnight(dt: datetime) -> datetime:
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    d0 = _midnight(datetime.now(TZ))
+    await send_agenda(update, d0, d0 + timedelta(days=1), "Nothing on today 🎉")
+
+
+async def tomorrow_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    d0 = _midnight(datetime.now(TZ)) + timedelta(days=1)
+    await send_agenda(update, d0, d0 + timedelta(days=1), "Nothing on tomorrow 🎉")
+
+
+async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    d0 = _midnight(datetime.now(TZ))
+    await send_agenda(update, d0, d0 + timedelta(days=7), "Nothing in the next 7 days.")
+
+
+async def agenda_for_text(update: Update, text: str) -> bool:
+    """Show the agenda for a date or date range written as text. False if not a date."""
+    today = datetime.now(TZ).date()
+    text = text.replace("_", " ").strip()
+    try:
+        first, last, _ = _extract_range(text, today)
+        if first is None:
+            first, _, _ = _extract_date(text, today)
+            last = first
+    except ParseError as exc:
+        await update.message.reply_text(str(exc))
+        return True
+    if first is None:
+        return False
+    d0 = datetime.combine(first, datetime.min.time(), tzinfo=TZ)
+    d1 = datetime.combine(last, datetime.min.time(), tzinfo=TZ) + timedelta(days=1)
+    label = f"{first:%a %-d %b}" if first == last else f"{first:%-d %b} to {last:%-d %b}"
+    await send_agenda(update, d0, d1, f"Nothing on {label} 🎉")
+    return True
+
+
+DAY_HELP = "Try: /day 18 dec, /day next fri, /day 16-21 dec (or just /18dec, /fri)"
+
+
+async def day_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    q = " ".join(context.args or [])
+    if not q or not await agenda_for_text(update, q):
+        await update.message.reply_text(DAY_HELP)
+
+
+async def date_command_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unknown commands like /18dec, /fri, /18/12 are treated as a date."""
+    if not allowed(update):
+        return
+    text = update.message.text.lstrip("/").split("@")[0]
+    if not await agenda_for_text(update, text):
+        await update.message.reply_text("I don't know that command. " + DAY_HELP)
+
+
+async def month_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    d0 = _midnight(datetime.now(TZ))
+    await send_agenda(update, d0, d0 + timedelta(days=30), "Nothing in the next 30 days.")
 
 
 async def where_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -433,15 +514,34 @@ def main():
     if not ALLOWED_IDS and not ALLOWED_USERNAMES:
         log.warning("No ALLOWED_TELEGRAM_IDS or ALLOWED_TELEGRAM_USERNAMES set: anyone who finds the bot can add events!")
     get_calendar()  # fail fast if the Apple login is wrong
-    app = Application.builder().token(token).build()
+    async def post_init(application):
+        await application.bot.set_my_commands([
+            BotCommand("today", "What's on today"),
+            BotCommand("tomorrow", "What's on tomorrow"),
+            BotCommand("week", "Next 7 days"),
+            BotCommand("month", "Next 30 days"),
+            BotCommand("day", "A specific day, e.g. /day 18 dec or /fri"),
+            BotCommand("where", "Which trip you're on (e.g. /where 18 dec)"),
+            BotCommand("delete", "Delete an event (e.g. /delete footie)"),
+            BotCommand("undo", "Remove the last event I added"),
+            BotCommand("help", "Examples"),
+            BotCommand("version", "Which update is running"),
+        ])
+
+    app = Application.builder().token(token).post_init(post_init).build()
     app.add_handler(CommandHandler(["start", "help"], start_cmd))
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("week", week_cmd))
+    app.add_handler(CommandHandler("today", today_cmd))
+    app.add_handler(CommandHandler("tomorrow", tomorrow_cmd))
+    app.add_handler(CommandHandler("month", month_cmd))
+    app.add_handler(CommandHandler(["day", "on", "date"], day_cmd))
     app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("where", where_cmd))
     app.add_handler(CommandHandler(["delete", "remove"], delete_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_handler(MessageHandler(filters.COMMAND, date_command_fallback))  # must be last
     log.info("Bot running (%s). Ctrl+C to stop.", running_version())
     app.run_polling()
 
