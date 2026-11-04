@@ -1,6 +1,7 @@
 """iCloud Calendar access over CalDAV (the same protocol the Calendar app uses)."""
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,7 @@ from dateutil.rrule import rrulestr
 from icalendar import Calendar, Event, vRecur
 
 ICLOUD_URL = "https://caldav.icloud.com"
+log = logging.getLogger("calbot.icloud")
 
 # label shown on the button -> iCalendar RRULE (None = one-off)
 REPEAT_RULES = {
@@ -134,13 +136,15 @@ class ICloudCalendar:
         for cal in self.calendars:
             try:
                 objects = cal.search(start=start, end=end, event=True)
-            except Exception:
+            except Exception as exc:
+                log.warning("search failed on %s: %s", cal.name, exc)
                 continue
             for obj in objects:
                 try:
                     ical = obj.icalendar_instance
                     occurrences = recurring_ical_events.of(ical).between(start, end)
-                except Exception:
+                except Exception as exc:
+                    log.warning("could not read an event in %s: %s", cal.name, exc)
                     continue
                 recurring = any(c.get("RRULE") is not None for c in ical.walk("VEVENT"))
                 for occ in occurrences:

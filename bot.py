@@ -360,13 +360,17 @@ async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _trips(occs):
-    """Multi-day all-day events (trip banners)."""
-    return [o for o in occs if o.all_day and (o.end - o.start).days > 1]
+    """Trips: multi-day all-day banners, or timed events lasting 24h or more (e.g. TW, JB)."""
+    return [o for o in occs
+            if (o.all_day and (o.end - o.start).days > 1)
+            or (not o.all_day and o.end - o.start >= timedelta(hours=24))]
 
 
 def _trip_line(o) -> str:
-    last = o.end - timedelta(days=1)
-    return f"📍 {html.escape(o.title)} ({o.start:%-d %b} to {last:%-d %b})"
+    if o.all_day:
+        last = o.end - timedelta(days=1)
+        return f"📍 {html.escape(o.title)} ({o.start:%-d %b} to {last:%-d %b})"
+    return f"📍 {html.escape(o.title)} ({o.start:%-d %b} {_t(o.start)} to {o.end:%-d %b} {_t(o.end)})"
 
 
 async def send_agenda(update: Update, start: datetime, end: datetime, empty: str):
