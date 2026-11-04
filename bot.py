@@ -328,6 +328,18 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                   parse_mode="HTML")
 
 
+def running_version() -> str:
+    sha = os.getenv("RAILWAY_GIT_COMMIT_SHA", "")[:7] or "local"
+    msg = os.getenv("RAILWAY_GIT_COMMIT_MESSAGE", "").splitlines()[0:1]
+    return f"{sha} {msg[0] if msg else ''}".strip()
+
+
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not allowed(update):
+        return
+    await update.message.reply_text(f"Running: {running_version()}")
+
+
 async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         return
@@ -379,10 +391,11 @@ def main():
     app.add_handler(CommandHandler(["start", "help"], start_cmd))
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("week", week_cmd))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler(["delete", "remove"], delete_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    log.info("Bot running. Ctrl+C to stop.")
+    log.info("Bot running (%s). Ctrl+C to stop.", running_version())
     app.run_polling()
 
 
