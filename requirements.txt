@@ -1,0 +1,6 @@
+python-telegram-bot>=21,<23
+caldav>=1.4,<3
+icalendar>=6
+recurring-ical-events>=3
+python-dateutil>=2.9
+python-dotenv>=1.0
