@@ -35,6 +35,14 @@ Rules worth knowing:
 
 Date ranges become all-day events marked **Free**, so a trip shows where you are without blocking anything or triggering clash warnings.
 
+## Deleting events
+
+Send `delete` plus part of the title, e.g. `delete footie` (also works with `remove`, `cancel` or `/delete`). Add a date if there are many matches: `delete footie 12/11`. Plain `delete` lists the next 2 weeks.
+
+The bot shows matching events as buttons. Nothing is removed until you confirm:
+- One-off event: **Yes, delete** or **Keep it**
+- Repeating event (🔁): **Only <that date>**, **Stop repeating from here** (that date and every later one go, earlier ones stay), or **Keep it**
+
 Commands: `/week` lists the next 7 days, `/undo` deletes the last event the bot added.
 
 Clash checks look at every calendar on your account (or only those in `CHECK_CALENDARS`). For repeating events it checks the next 3 months. Events marked "Free" and all-day events are ignored unless you turn `ALL_DAY_COUNTS_AS_CONFLICT` on.
