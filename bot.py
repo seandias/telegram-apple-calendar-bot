@@ -27,6 +27,8 @@ log = logging.getLogger("calbot")
 
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Singapore"))
 ALLOWED_IDS = {int(x) for x in os.getenv("ALLOWED_TELEGRAM_IDS", "").replace(" ", "").split(",") if x}
+ALLOWED_USERNAMES = {u.strip().lstrip("@").lower()
+                     for u in os.getenv("ALLOWED_TELEGRAM_USERNAMES", "").split(",") if u.strip()}
 INCLUDE_ALL_DAY = os.getenv("ALL_DAY_COUNTS_AS_CONFLICT", "false").lower() == "true"
 
 REPEAT_LABELS = {
@@ -57,7 +59,11 @@ def get_calendar() -> ICloudCalendar:
 
 def allowed(update: Update) -> bool:
     user = update.effective_user
-    return bool(user) and (not ALLOWED_IDS or user.id in ALLOWED_IDS)
+    if not user:
+        return False
+    if not ALLOWED_IDS and not ALLOWED_USERNAMES:
+        return True
+    return user.id in ALLOWED_IDS or (user.username or "").lower() in ALLOWED_USERNAMES
 
 
 # ------------------------------------------------------------ formatting
@@ -236,8 +242,8 @@ async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    if not ALLOWED_IDS:
-        log.warning("ALLOWED_TELEGRAM_IDS is empty: anyone who finds the bot can add events!")
+    if not ALLOWED_IDS and not ALLOWED_USERNAMES:
+        log.warning("No ALLOWED_TELEGRAM_IDS or ALLOWED_TELEGRAM_USERNAMES set: anyone who finds the bot can add events!")
     get_calendar()  # fail fast if the Apple login is wrong
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler(["start", "help"], start_cmd))

@@ -39,7 +39,7 @@ Clash checks look at every calendar on your account (or only those in `CHECK_CAL
 
 **1. Create the bot.** In Telegram, message **@BotFather**, send `/newbot`, pick a name, and copy the token.
 
-**2. Get your Telegram ID.** Message **@userinfobot** and copy the number. This locks the bot to you.
+**2. Lock it to you.** Put your Telegram username (without the @) in `ALLOWED_TELEGRAM_USERNAMES`. You can use your numeric ID from **@userinfobot** in `ALLOWED_TELEGRAM_IDS` instead, which keeps working even if you change your username.
 
 **3. Make an Apple app-specific password.** Go to account.apple.com, Sign-In and Security, App-Specific Passwords, and generate one (e.g. "Telegram calendar"). Your normal Apple password won't work here, and you can revoke this one any time.
 
@@ -66,7 +66,7 @@ The bot only works while `python bot.py` is running somewhere.
 
 ## Security
 
-The app-specific password can read your iCloud calendars and contacts, so keep `.env` private (it's in `.gitignore`) and keep `ALLOWED_TELEGRAM_IDS` set. If anything leaks, revoke the password at account.apple.com.
+The app-specific password can read your iCloud calendars and contacts, so keep `.env` private (it's in `.gitignore`) and keep `ALLOWED_TELEGRAM_USERNAMES` (or `ALLOWED_TELEGRAM_IDS`) set. If anything leaks, revoke the password at account.apple.com.
 
 ## Tests
 
