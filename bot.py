@@ -403,9 +403,12 @@ def _trip_line(o) -> str:
 async def send_agenda(update: Update, start: datetime, end: datetime, empty: str):
     try:
         cal = await asyncio.to_thread(get_calendar)
-        events = await asyncio.to_thread(cal.events_between, start, end)
         day0 = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        trips = _trips(await asyncio.to_thread(cal.find_occurrences, day0, end))
+        occs = await asyncio.to_thread(cal.find_occurrences, day0, end)
+        trips = _trips(occs)
+        trip_ids = {id(t) for t in trips}
+        # list everything, including events marked Free (they just don't count as clashes)
+        events = [o for o in occs if id(o) not in trip_ids and o.end > start]
     except Exception as exc:
         await update.message.reply_text(f"Couldn't read iCloud: {exc}")
         return
@@ -420,7 +423,8 @@ async def send_agenda(update: Update, start: datetime, end: datetime, empty: str
             lines.append(f"\n<b>{day}</b>")
             last_day = day
         when = fmt_span(e.start, e.end, e.all_day)
-        lines.append(f"• {when}  {html.escape(e.title)}")
+        tag = " <i>(free)</i>" if e.free else ""
+        lines.append(f"• {when}  {html.escape(e.title)}{tag}")
     # Telegram caps messages at 4096 chars; send in chunks
     chunk = ""
     for line in lines:
