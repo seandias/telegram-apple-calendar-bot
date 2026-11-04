@@ -109,7 +109,8 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• In Korea 21/12-7/1 (trip banner, never a clash)\n\n"
         "To delete: send “delete footie” (or delete + part of the title, optionally a date). "
         "I'll show matches and ask before deleting anything.\n\n"
-        "/week shows the next 7 days, /undo removes the last event I added."
+        "/week shows the next 7 days, /where shows which trip you're on "
+        "(e.g. /where 18 dec), /undo removes the last event I added."
     )
 
 
@@ -358,20 +359,33 @@ async def undo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Removed: {title}")
 
 
+def _trips(occs):
+    """Multi-day all-day events (trip banners)."""
+    return [o for o in occs if o.all_day and (o.end - o.start).days > 1]
+
+
+def _trip_line(o) -> str:
+    last = o.end - timedelta(days=1)
+    return f"📍 {html.escape(o.title)} ({o.start:%-d %b} to {last:%-d %b})"
+
+
 async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not allowed(update):
         return
     now = datetime.now(TZ)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     try:
         cal = await asyncio.to_thread(get_calendar)
         events = await asyncio.to_thread(cal.events_between, now, now + timedelta(days=7))
+        trips = _trips(await asyncio.to_thread(cal.find_occurrences, today, today + timedelta(days=7)))
     except Exception as exc:
         await update.message.reply_text(f"Couldn't read iCloud: {exc}")
         return
-    if not events:
+    if not events and not trips:
         await update.message.reply_text("Nothing in the next 7 days.")
         return
-    lines, last_day = [], None
+    lines = [_trip_line(t) for t in trips]
+    last_day = None
     for e in events:
         day = e.start.strftime("%a %-d %b")
         if day != last_day:
@@ -380,6 +394,38 @@ async def week_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         when = "all day" if e.all_day else f"{e.start:%-I:%M%p}".replace(":00", "").lower()
         lines.append(f"• {when}  {html.escape(e.title)}")
     await update.message.reply_text("\n".join(lines).strip(), parse_mode="HTML")
+
+
+async def where_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/where [date]: which trip you're on that day (default today)."""
+    if not allowed(update):
+        return
+    now = datetime.now(TZ)
+    q = " ".join(context.args or [])
+    day = now.date()
+    if q:
+        try:
+            parsed, _, _ = _extract_date(q, now.date())
+        except ParseError as exc:
+            await update.message.reply_text(str(exc))
+            return
+        if parsed is None:
+            await update.message.reply_text("Try: /where, /where 18 dec, /where next fri")
+            return
+        day = parsed
+    d0 = datetime.combine(day, datetime.min.time(), tzinfo=TZ)
+    try:
+        cal = await asyncio.to_thread(get_calendar)
+        trips = _trips(await asyncio.to_thread(cal.find_occurrences, d0, d0 + timedelta(days=1)))
+    except Exception as exc:
+        await update.message.reply_text(f"Couldn't read iCloud: {exc}")
+        return
+    label = "Today" if day == now.date() else f"{day:%a %-d %b}"
+    if trips:
+        await update.message.reply_text(f"{label}:\n" + "\n".join(_trip_line(t) for t in trips),
+                                        parse_mode="HTML")
+    else:
+        await update.message.reply_text(f"{label}: no trip, you're home 🏠")
 
 
 def main():
@@ -392,6 +438,7 @@ def main():
     app.add_handler(CommandHandler("undo", undo_cmd))
     app.add_handler(CommandHandler("week", week_cmd))
     app.add_handler(CommandHandler("version", version_cmd))
+    app.add_handler(CommandHandler("where", where_cmd))
     app.add_handler(CommandHandler(["delete", "remove"], delete_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))

@@ -43,7 +43,7 @@ The bot shows matching events as buttons. Nothing is removed until you confirm:
 - One-off event: **Yes, delete** or **Keep it**
 - Repeating event (🔁): **Only <that date>**, **Stop repeating from here** (that date and every later one go, earlier ones stay), or **Keep it**
 
-Commands: `/week` lists the next 7 days, `/undo` deletes the last event the bot added.
+Commands: `/where` (or `/where 18 dec`) tells you which trip you're on that day, `/week` lists the next 7 days with any trip at the top, `/undo` deletes the last event the bot added.
 
 Clash checks look at every calendar on your account (or only those in `CHECK_CALENDARS`). For repeating events it checks the next 3 months. Events marked "Free" and all-day events are ignored unless you turn `ALL_DAY_COUNTS_AS_CONFLICT` on.
 
