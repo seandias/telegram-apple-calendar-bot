@@ -106,13 +106,14 @@ def _extract_date(text: str, today: date):
             prefix = (m[1] or "").lower().strip()
             target = WEEKDAYS[m[2].lower()]
             ahead = (target - today.weekday()) % 7
-            if prefix == "next week":
-                # the given weekday in the following Mon-Sun week
+            if prefix in ("next week", "next"):
+                # "next fri" = Friday of next week (Mon-Sun), like "next week fri".
+                # On Wed 4 Nov that's Fri 13 Nov; plain "fri" is Fri 6 Nov.
                 monday_next = today + timedelta(days=7 - today.weekday())
-                return monday_next + timedelta(days=target), False, rest
-            if prefix == "next":
-                # first such day after today ("next tue" on a Tue = a week later)
-                return today + timedelta(days=ahead or 7), False, rest
+                result = monday_next + timedelta(days=target)
+                if (result - today).days <= 1:
+                    result += timedelta(days=7)  # "next mon" said on Sunday isn't tomorrow
+                return result, False, rest
             # bare / this / coming: today counts, if the time hasn't passed
             return today + timedelta(days=ahead), ahead == 0, rest
     return None, False, text

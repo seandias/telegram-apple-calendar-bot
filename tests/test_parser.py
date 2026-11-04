@@ -29,7 +29,7 @@ def p(text):
     ("Flight 2027-01-15 6:45am", "Flight", (2027, 1, 15, 6, 45), (2027, 1, 15, 7, 45)),
     ("Review next week wed 3-4pm", "Review", (2026, 11, 11, 15, 0), (2026, 11, 11, 16, 0)),
     ("Lunch with team 12 noon", "Lunch with team", (2026, 11, 3, 12, 0), (2026, 11, 3, 13, 0)),
-    ("Interview next weds 2-3pm", "Interview", (2026, 11, 4, 14, 0), (2026, 11, 4, 15, 0)),
+    ("Interview next weds 2-3pm", "Interview", (2026, 11, 11, 14, 0), (2026, 11, 11, 15, 0)),
     ("Lecture thurs 10am", "Lecture", (2026, 11, 5, 10, 0), (2026, 11, 5, 11, 0)),
 ])
 def test_timed(text, title, start, end):
@@ -78,3 +78,15 @@ def test_trips(text, title, first, last):
 def test_time_range_not_mistaken_for_trip():
     ev = p("Football next tuesday 8-10pm")
     assert not ev.all_day and ev.start.hour == 20
+
+
+@pytest.mark.parametrize("now,text,expected", [
+    ((2026, 11, 4, 16, 16), "GEN ethics next friday 11am-12pm", (2026, 11, 13)),  # Wed -> next week's Fri
+    ((2026, 11, 4, 16, 16), "GEN ethics friday 11am-12pm", (2026, 11, 6)),        # plain fri = this week
+    ((2026, 11, 4, 16, 16), "Interview next weds 2-3pm", (2026, 11, 11)),
+    ((2026, 11, 6, 9, 0), "Lunch next monday 12pm", (2026, 11, 9)),              # Fri -> Mon 9
+    ((2026, 11, 8, 9, 0), "Lunch next monday 12pm", (2026, 11, 16)),             # Sun -> not tomorrow
+    ((2026, 11, 7, 9, 0), "Mass next sunday 10am", (2026, 11, 15)),              # Sat -> Sun 15
+])
+def test_next_weekday(now, text, expected):
+    assert parse_event(text, datetime(*now)).start.date() == datetime(*expected).date()

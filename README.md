@@ -29,7 +29,7 @@ Bot:  ⚠️ Clashes in the next 3 months:
 | `Taiwan 16-21 dec` | Same, other date styles work too |
 
 Rules worth knowing:
-- `next tue` means the first Tuesday after today (on a Tuesday, that's a week away). `tue` alone means the coming Tuesday, which can be today.
+- `next fri` means Friday of next week (said on Wed 4 Nov, that's Fri 13 Nov). `fri` alone means the coming Friday (Fri 6 Nov), which can be today.
 - A time with no date goes today, or tomorrow if it has already passed.
 - Without am/pm, hours 1 to 6 are read as afternoon/evening and 7 to 11 as morning. Add `pm` if in doubt; the bot always shows what it understood before saving.
 
