@@ -388,10 +388,7 @@ async def send_agenda(update: Update, start: datetime, end: datetime, empty: str
         if day != last_day:
             lines.append(f"\n<b>{day}</b>")
             last_day = day
-        if e.all_day:
-            when = "all day"
-        else:
-            when = f"{e.start:%-I:%M%p}–{e.end:%-I:%M%p}".replace(":00", "").lower()
+        when = fmt_span(e.start, e.end, e.all_day)
         lines.append(f"• {when}  {html.escape(e.title)}")
     # Telegram caps messages at 4096 chars; send in chunks
     chunk = ""
@@ -402,6 +399,21 @@ async def send_agenda(update: Update, start: datetime, end: datetime, empty: str
         chunk += line + "\n"
     if chunk.strip():
         await update.message.reply_text(chunk.strip(), parse_mode="HTML")
+
+
+def _t(dt: datetime) -> str:
+    return f"{dt:%-I:%M%p}".replace(":00", "").lower()
+
+
+def fmt_span(start: datetime, end: datetime, all_day: bool) -> str:
+    """'9pm–11pm', or with the end date when it runs into another day."""
+    if all_day:
+        last = (end - timedelta(days=1)).date()
+        return "all day" if last <= start.date() else f"all day, until {last:%a %-d %b}"
+    ends_at_midnight = end.date() == start.date() + timedelta(days=1) and end.time() == datetime.min.time()
+    if end.date() == start.date() or ends_at_midnight:
+        return f"{_t(start)}–{_t(end)}"
+    return f"{_t(start)} to {end:%a %-d %b} {_t(end)}"
 
 
 def _midnight(dt: datetime) -> datetime:
