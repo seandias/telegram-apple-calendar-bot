@@ -70,9 +70,11 @@ def allowed(update: Update) -> bool:
 
 def fmt_when(start: datetime, end: datetime, all_day: bool) -> str:
     if all_day:
-        days = (end.date() - start.date()).days
-        text = start.strftime("%a %-d %b %Y") + " (all day)"
-        return text if days <= 1 else text + f", {days} days"
+        last = end.date() - timedelta(days=1)
+        if last <= start.date():
+            return start.strftime("%a %-d %b %Y") + " (all day)"
+        days = (last - start.date()).days + 1
+        return f"{start:%a %-d %b} to {last:%a %-d %b %Y} (all day, {days} days)"
     same_day = start.date() == end.date()
     s = start.strftime("%a %-d %b, %-I:%M%p").replace(":00", "").lower()
     e = end.strftime("%-I:%M%p" if same_day else "%a %-d %b, %-I:%M%p").replace(":00", "").lower()
@@ -102,7 +104,8 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Football next tuesday 8-10pm\n"
         "• Dentist 12 nov 3pm\n"
         "• Dinner with Sandra fri 7:30pm for 2h\n"
-        "• Sandra's birthday 14/12 (no time = all day)\n\n"
+        "• Sandra's birthday 14/12 (no time = all day)\n"
+        "• In Korea 21/12-7/1 (trip banner, never a clash)\n\n"
         "/week shows the next 7 days, /undo removes the last event I added."
     )
 
@@ -119,10 +122,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     key = secrets.token_hex(4)
     context.user_data.setdefault("pending", {})[key] = ev
+    multi_day = ev.all_day and (ev.end - ev.start).days > 1
     await update.message.reply_text(
-        f"📅 <b>{html.escape(ev.title)}</b>\n{fmt_when(ev.start, ev.end, ev.all_day)}\n\nRepeat?",
+        f"📅 <b>{html.escape(ev.title)}</b>\n{fmt_when(ev.start, ev.end, ev.all_day)}\n\n" + ("Add it?" if multi_day else "Repeat?"),
         parse_mode="HTML",
-        reply_markup=repeat_keyboard(key),
+        reply_markup=(InlineKeyboardMarkup([[
+            InlineKeyboardButton("Add", callback_data=f"r|{key}|none"),
+            InlineKeyboardButton("Cancel", callback_data=f"x|{key}"),
+        ]]) if multi_day else repeat_keyboard(key)),
     )
 
 
@@ -186,7 +193,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         cal = await asyncio.to_thread(get_calendar)
         url = await asyncio.to_thread(cal.add_event, ev.title, ev.start.replace(tzinfo=TZ),
-                                      ev.end.replace(tzinfo=TZ), ev.all_day, rrule)
+                                      ev.end.replace(tzinfo=TZ), ev.all_day, rrule, ev.free)
     except Exception as exc:
         log.exception("save failed")
         await query.edit_message_text(header + f"\n\n⚠️ Couldn't save: {html.escape(str(exc))}", parse_mode="HTML")

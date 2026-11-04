@@ -131,7 +131,7 @@ class ICloudCalendar:
     # ------------------------------------------------------------ writing
 
     def add_event(self, title: str, start: datetime, end: datetime,
-                  all_day: bool, rrule: str | None) -> str:
+                  all_day: bool, rrule: str | None, free: bool = False) -> str:
         """Create the event. Returns its URL (used by /undo)."""
         cal = Calendar()
         cal.add("prodid", "-//telegram-calendar-bot//EN")
@@ -146,6 +146,8 @@ class ICloudCalendar:
         else:
             ev.add("dtstart", start)
             ev.add("dtend", end)
+        if free:
+            ev.add("transp", "TRANSPARENT")  # "Free" in Calendar
         if rrule:
             ev.add("rrule", vRecur.from_ical(rrule))
         cal.add_component(ev)

@@ -38,6 +38,7 @@ class ParsedEvent:
     start: datetime          # naive local time (or midnight for all-day)
     end: datetime
     all_day: bool = False
+    free: bool = False       # shows as "Free" in Calendar, never counts as a clash
 
 
 # ---------------------------------------------------------------- dates
@@ -115,6 +116,68 @@ def _extract_date(text: str, today: date):
             # bare / this / coming: today counts, if the time hasn't passed
             return today + timedelta(days=ahead), ahead == 0, rest
     return None, False, text
+
+
+# ---------------------------------------------------------------- date ranges (trips)
+
+_SEP = r"\s*(?:-|–|—|to|till|until)\s*"
+_DM = r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?"
+_DMON = rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MO})\.?(?:\s+(\d{{4}}))?"
+RANGE_PATTERNS = [
+    ("dm_dm", re.compile(rf"\b{_DM}{_SEP}{_DM}\b", re.I)),                 # 21/12-7/1
+    ("dmon_dmon", re.compile(rf"\b{_DMON}{_SEP}{_DMON}\b", re.I)),         # 21 dec - 7 jan
+    ("d_d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?{_SEP}(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),  # 16-21 dec
+    ("mon_d_d", re.compile(rf"\b({_MO})\.?\s+(\d{{1,2}}){_SEP}(\d{{1,2}})\b(?!\s*(?:am|pm|:))", re.I)),  # dec 16-21
+]
+
+
+def _year(y: str | None) -> int | None:
+    if not y:
+        return None
+    y = int(y)
+    return y + 2000 if y < 100 else y
+
+
+def _range_dates(d1, m1, y1, d2, m2, y2, today: date) -> tuple[date, date]:
+    if y1:
+        start = date(y1, m1, d1)
+    else:
+        start = _roll_year(m1, d1, today)
+    end = date(y2 or start.year, m2, d2)
+    if end < start and not y2:
+        end = date(start.year + 1, m2, d2)  # 21 dec - 7 jan crosses new year
+    if end < start:
+        raise ParseError("The end date is before the start date.")
+    return start, end
+
+
+def _extract_range(text: str, today: date):
+    """Return (first_day, last_day, rest) for multi-day spans, else (None, None, text)."""
+    for kind, pat in RANGE_PATTERNS:
+        m = pat.search(text)
+        if not m:
+            continue
+        rest = (text[: m.start()] + " " + text[m.end():]).strip()
+        g = m.groups()
+        try:
+            if kind == "dm_dm":
+                a, b = _range_dates(int(g[0]), int(g[1]), _year(g[2]),
+                                    int(g[3]), int(g[4]), _year(g[5]), today)
+            elif kind == "dmon_dmon":
+                a, b = _range_dates(int(g[0]), MONTHS[g[1].lower()], _year(g[2]),
+                                    int(g[3]), MONTHS[g[4].lower()], _year(g[5]), today)
+            elif kind == "d_d_mon":
+                mo, y = MONTHS[g[2].lower()], _year(g[3])
+                a, b = _range_dates(int(g[0]), mo, y, int(g[1]), mo, y, today)
+            else:
+                mo = MONTHS[g[0].lower()]
+                a, b = _range_dates(int(g[1]), mo, None, int(g[2]), mo, None, today)
+        except ValueError as exc:
+            if isinstance(exc, ParseError):
+                raise
+            raise ParseError(f"That date doesn't exist ({m[0]}).") from exc
+        return a, b, rest
+    return None, None, text
 
 
 # ---------------------------------------------------------------- times
@@ -236,6 +299,15 @@ def parse_event(text: str, now: datetime) -> ParsedEvent:
     all_day_flag = bool(ALL_DAY_RE.search(raw))
     raw = ALL_DAY_RE.sub(" ", raw)
 
+    first, last, rest = _extract_range(raw, now.date())
+    if first is not None:
+        title = _clean_title(rest)
+        if not title:
+            raise ParseError("I couldn't find a name. Try: In Korea 21/12-7/1")
+        start = datetime.combine(first, time(0, 0))
+        end = datetime.combine(last + timedelta(days=1), time(0, 0))
+        return ParsedEvent(title, start, end, all_day=True, free=True)
+
     the_date, weekday_bare, rest = _extract_date(raw, now.date())
     start_t, end_t, duration, rest = _extract_times(rest)
     title = _clean_title(rest)
@@ -248,7 +320,7 @@ def parse_event(text: str, now: datetime) -> ParsedEvent:
     if start_t is None or all_day_flag:
         d = the_date or now.date()
         start = datetime.combine(d, time(0, 0))
-        return ParsedEvent(title, start, start + timedelta(days=1), all_day=True)
+        return ParsedEvent(title, start, start + timedelta(days=1), all_day=True, free=True)
 
     if the_date is None:
         the_date = now.date()

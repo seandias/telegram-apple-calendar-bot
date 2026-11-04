@@ -58,3 +58,23 @@ def test_errors():
         p("next tuesday 8pm")  # no title
     with pytest.raises(ParseError):
         p("Thing 31/2 3pm")    # impossible date
+
+
+@pytest.mark.parametrize("text,title,first,last", [
+    ("In Korea 21/12-7/1", "In Korea", (2026, 12, 21), (2027, 1, 7)),
+    ("Taiwan trip 16 dec - 21 dec", "Taiwan trip", (2026, 12, 16), (2026, 12, 21)),
+    ("Korea 21 dec to 7 jan", "Korea", (2026, 12, 21), (2027, 1, 7)),
+    ("In Taiwan 16-21 dec", "In Taiwan", (2026, 12, 16), (2026, 12, 21)),
+    ("Bali dec 1-4", "Bali", (2026, 12, 1), (2026, 12, 4)),
+])
+def test_trips(text, title, first, last):
+    from datetime import timedelta
+    ev = p(text)
+    assert ev.title == title and ev.all_day and ev.free
+    assert ev.start == datetime(*first)
+    assert ev.end - timedelta(days=1) == datetime(*last)
+
+
+def test_time_range_not_mistaken_for_trip():
+    ev = p("Football next tuesday 8-10pm")
+    assert not ev.all_day and ev.start.hour == 20

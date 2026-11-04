@@ -25,11 +25,15 @@ Bot:  ⚠️ Clashes in the next 3 months:
 | `Standup 20/11 09:30-10:00` | Dates are day/month |
 | `Review next week wed 3-4pm` | Wednesday of next week |
 | `Sandra's birthday 14/12` | No time means all day |
+| `In Korea 21/12-7/1` | Trip banner across those days, marked Free |
+| `Taiwan 16-21 dec` | Same, other date styles work too |
 
 Rules worth knowing:
 - `next tue` means the first Tuesday after today (on a Tuesday, that's a week away). `tue` alone means the coming Tuesday, which can be today.
 - A time with no date goes today, or tomorrow if it has already passed.
 - Without am/pm, hours 1 to 6 are read as afternoon/evening and 7 to 11 as morning. Add `pm` if in doubt; the bot always shows what it understood before saving.
+
+Date ranges become all-day events marked **Free**, so a trip shows where you are without blocking anything or triggering clash warnings.
 
 Commands: `/week` lists the next 7 days, `/undo` deletes the last event the bot added.
 
