@@ -128,6 +128,7 @@ RANGE_PATTERNS = [
     ("dm_dm", re.compile(rf"\b{_DM}{_SEP}{_DM}\b", re.I)),                 # 21/12-7/1
     ("dmon_dmon", re.compile(rf"\b{_DMON}{_SEP}{_DMON}\b", re.I)),         # 21 dec - 7 jan
     ("d_d_mon", re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?{_SEP}(\d{{1,2}})(?:st|nd|rd|th)?\s*({_MO})\b\.?(?:\s+(\d{{4}}))?", re.I)),  # 16-21 dec
+    ("mond_mond", re.compile(rf"\b({_MO})\.?\s*(\d{{1,2}})(?:st|nd|rd|th)?{_SEP}({_MO})\.?\s*(\d{{1,2}})(?:st|nd|rd|th)?\b", re.I)),  # dec 16 - dec 21
     ("mon_d_d", re.compile(rf"\b({_MO})\.?\s*(\d{{1,2}}){_SEP}(\d{{1,2}})\b(?!\s*(?:am|pm|:))", re.I)),  # dec 16-21
 ]
 
@@ -170,6 +171,9 @@ def _extract_range(text: str, today: date):
             elif kind == "d_d_mon":
                 mo, y = MONTHS[g[2].lower()], _year(g[3])
                 a, b = _range_dates(int(g[0]), mo, y, int(g[1]), mo, y, today)
+            elif kind == "mond_mond":
+                a, b = _range_dates(int(g[1]), MONTHS[g[0].lower()], None,
+                                    int(g[3]), MONTHS[g[2].lower()], None, today)
             else:
                 mo = MONTHS[g[0].lower()]
                 a, b = _range_dates(int(g[1]), mo, None, int(g[2]), mo, None, today)

@@ -108,3 +108,17 @@ def test_trip_no_spaces(text, first, last):
 def test_single_date_no_space():
     ev = p("Dentist 12nov 3pm")
     assert ev.title == "Dentist" and ev.start == datetime(2026, 11, 12, 15, 0)
+
+
+@pytest.mark.parametrize("text,title,first,last", [
+    ("In taiwan 16 dec to 21 dec", "In taiwan", (2026, 12, 16), (2026, 12, 21)),
+    ("In korea 21 dec to 7 jan", "In korea", (2026, 12, 21), (2027, 1, 7)),
+    ("In taiwan dec 16 to dec 21", "In taiwan", (2026, 12, 16), (2026, 12, 21)),
+    ("In korea from 21st dec to 7th jan", "In korea", (2026, 12, 21), (2027, 1, 7)),
+    ("In korea 21/12 to 7/1", "In korea", (2026, 12, 21), (2027, 1, 7)),
+])
+def test_trip_phrasings(text, title, first, last):
+    from datetime import timedelta
+    ev = p(text)
+    assert ev.title == title and ev.all_day and ev.free
+    assert ev.start == datetime(*first) and ev.end - timedelta(days=1) == datetime(*last)
