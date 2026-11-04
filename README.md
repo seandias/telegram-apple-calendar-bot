@@ -47,6 +47,14 @@ Commands: `/where` (or `/where 18 dec`) tells you which trip you're on that day,
 
 Clash checks look at every calendar on your account (or only those in `CHECK_CALENDARS`). For repeating events it checks the next 3 months. Events marked "Free" and all-day events are ignored unless you turn `ALL_DAY_COUNTS_AS_CONFLICT` on.
 
+## New-event alerts
+
+Every 5 minutes the bot checks your calendars. When something appears that you didn't add through the bot (an interview invite accepted from an email, an event someone shares with you), it messages you with the details and any clashes. It also tells you when an event is moved or removed. The first check after a restart only takes a snapshot, so you won't get a flood of alerts.
+
+Set `NOTIFY_CHAT_ID` (the bot shows yours when you send `/start`) so alerts keep working after restarts. Without it, alerts start once you've messaged the bot.
+
+**Google Calendar (optional):** to include a Google calendar in alerts and clash checks, open Google Calendar on the web, go to Settings, pick the calendar, copy **Secret address in iCal format**, and set `EXTRA_ICS_URLS=Google|<that link>`. It's read-only, and Google can take a while to update that link.
+
 ## Setup (about 10 minutes)
 
 **1. Create the bot.** In Telegram, message **@BotFather**, send `/newbot`, pick a name, and copy the token.

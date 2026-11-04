@@ -21,6 +21,7 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
 
 from event_parser import ParseError, _extract_date, _extract_range, parse_event
 from icloud_calendar import REPEAT_RULES, ICloudCalendar
+from watcher import Watcher
 
 load_dotenv()
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
@@ -40,6 +41,22 @@ REPEAT_LABELS = {
     "monthly": "Every month",
 }
 
+WATCH_MINUTES = float(os.getenv("WATCH_MINUTES", "5"))  # 0 turns new-event alerts off
+NOTIFY_CHAT_ID = int(os.getenv("NOTIFY_CHAT_ID", "0") or 0) or None
+
+
+def _parse_feeds(raw: str) -> list[tuple[str, str]]:
+    """EXTRA_ICS_URLS="Google|https://...basic.ics, Work|https://..." (name optional)."""
+    feeds = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name, _, url = part.partition("|") if "|" in part else ("Other calendar", "", part)
+        feeds.append((name.strip(), url.strip()))
+    return feeds
+
+
 calendar: ICloudCalendar | None = None
 
 
@@ -53,6 +70,7 @@ def get_calendar() -> ICloudCalendar:
             calendar_name=os.getenv("CALENDAR_NAME") or None,
             tz=TZ,
             check_calendars=[c for c in check.split(",") if c.strip()] if check else None,
+            feeds=_parse_feeds(os.getenv("EXTRA_ICS_URLS", "")),
         )
         log.info("Connected to iCloud. Adding to: %s", calendar.target.name)
     return calendar
@@ -62,9 +80,12 @@ def allowed(update: Update) -> bool:
     user = update.effective_user
     if not user:
         return False
-    if not ALLOWED_IDS and not ALLOWED_USERNAMES:
-        return True
-    return user.id in ALLOWED_IDS or (user.username or "").lower() in ALLOWED_USERNAMES
+    ok = (not ALLOWED_IDS and not ALLOWED_USERNAMES) or user.id in ALLOWED_IDS \
+        or (user.username or "").lower() in ALLOWED_USERNAMES
+    global NOTIFY_CHAT_ID
+    if ok and NOTIFY_CHAT_ID is None and update.effective_chat:
+        NOTIFY_CHAT_ID = update.effective_chat.id  # alerts go here until the next restart
+    return ok
 
 
 # ------------------------------------------------------------ formatting
@@ -110,8 +131,14 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "To delete: send “delete footie” (or delete + part of the title, optionally a date). "
         "I'll show matches and ask before deleting anything.\n\n"
         "/today, /tomorrow, /week and /month show what's coming up, /day 18 dec (or /18dec, /fri) shows one day. /where shows which trip you're on "
-        "(e.g. /where 18 dec), /undo removes the last event I added."
+        "(e.g. /where 18 dec), /undo removes the last event I added.\n\n"
+        "I also watch your calendar and message you when something new appears "
+        "(like an interview from an email), moves, or gets cancelled."
     )
+    if not os.getenv("NOTIFY_CHAT_ID"):
+        await update.message.reply_text(
+            f"To keep those alerts working after I restart, add NOTIFY_CHAT_ID={update.effective_chat.id} "
+            "to the bot's settings (Railway → Variables).")
 
 
 DELETE_RE = re.compile(r"^\s*(?:delete|remove|del|cancel)\b\s*(.*)$", re.I | re.S)
@@ -525,6 +552,77 @@ async def where_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{label}: no trip, you're home 🏠")
 
 
+# ------------------------------------------------------------ calendar watcher
+
+watcher = Watcher(window_days=60)
+
+
+def _clashes_for(cal, o) -> list:
+    if o.all_day or o.free:
+        return []
+    return [b for b in cal.events_between(o.start, o.end)
+            if not (b.title == o.title and b.start == o.start)]
+
+
+def _describe(change, clashes) -> str:
+    o = change.occ
+    title = html.escape(o.title)
+    where = f"\n<i>{html.escape(o.calendar)}</i>" if o.calendar else ""
+    rep = " 🔁" if change.repeating else ""
+    if change.kind == "new":
+        head = f"🆕 <b>New in your calendar:</b> {title}{rep}"
+        body = fmt_when(o.start, o.end, o.all_day) + (" (repeats)" if change.repeating else "")
+    elif change.kind == "changed":
+        b = change.before
+        head = f"✏️ <b>Changed:</b> {title}"
+        body = (f"Was: {fmt_when(b.start, b.end, b.all_day)}\n"
+                f"Now: {fmt_when(o.start, o.end, o.all_day)}")
+        if b.title != o.title:
+            body = f"Renamed from “{html.escape(b.title)}”\n" + body
+    else:
+        if change.repeating:
+            head = f"🗑 <b>Removed:</b> {title} on {o.start:%a %-d %b}"
+        else:
+            head = f"🗑 <b>Removed from your calendar:</b> {title}"
+        body = fmt_when(o.start, o.end, o.all_day)
+    text = f"{head}\n{body}{where}"
+    if clashes:
+        lines = "\n".join(f"• {html.escape(c.title)} ({fmt_span(c.start, c.end, c.all_day)})"
+                           for c in clashes[:5])
+        text += f"\n\n⚠️ Clashes with:\n{lines}"
+    elif change.kind in ("new", "changed") and not o.all_day:
+        text += "\n\nNo clashes ✅"
+    return text
+
+
+def poll_calendar() -> list[str]:
+    cal = get_calendar()
+    now = datetime.now(TZ)
+    occs = cal.find_occurrences(now - timedelta(hours=1), now + timedelta(days=watcher.window_days))
+    messages = []
+    for ch in watcher.diff(occs, now)[:10]:  # cap to avoid a flood after a big import
+        clashes = _clashes_for(cal, ch.occ) if ch.kind != "removed" else []
+        messages.append(_describe(ch, clashes))
+    return messages
+
+
+async def watch_loop(application):
+    if WATCH_MINUTES <= 0:
+        return
+    while True:
+        try:
+            messages = await asyncio.to_thread(poll_calendar)
+            if messages and NOTIFY_CHAT_ID:
+                for m in messages:
+                    await application.bot.send_message(NOTIFY_CHAT_ID, m, parse_mode="HTML")
+            elif messages:
+                log.info("%d calendar changes but no chat to send to yet (message the bot once)",
+                         len(messages))
+        except Exception:
+            log.exception("calendar watch failed")
+        await asyncio.sleep(WATCH_MINUTES * 60)
+
+
 def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     if not ALLOWED_IDS and not ALLOWED_USERNAMES:
@@ -543,6 +641,7 @@ def main():
             BotCommand("help", "Examples"),
             BotCommand("version", "Which update is running"),
         ])
+        application.create_task(watch_loop(application))
 
     app = Application.builder().token(token).post_init(post_init).build()
     app.add_handler(CommandHandler(["start", "help"], start_cmd))

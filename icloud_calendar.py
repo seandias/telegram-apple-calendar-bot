@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import time
+
 import caldav
+import httpx
 import recurring_ical_events
 from dateutil.rrule import rrulestr
 from icalendar import Calendar, Event, vRecur
@@ -45,6 +48,9 @@ class Occurrence:
     url: str
     calendar: str
     rid: date | datetime     # original start of this occurrence (RECURRENCE-ID)
+    uid: str = ""
+    free: bool = False       # marked "Free" (transparent), so never a clash
+    read_only: bool = False  # from an outside feed (e.g. Google), can't be edited here
 
 
 def _like(value, ref):
@@ -71,8 +77,11 @@ def _to_local(value, tz: ZoneInfo) -> tuple[datetime, bool]:
 
 class ICloudCalendar:
     def __init__(self, apple_id: str, app_password: str, calendar_name: str | None,
-                 tz: ZoneInfo, check_calendars: list[str] | None = None):
+                 tz: ZoneInfo, check_calendars: list[str] | None = None,
+                 feeds: list[tuple[str, str]] | None = None):
         self.tz = tz
+        self.feeds = feeds or []          # [(name, ics_url)] read-only, e.g. Google Calendar
+        self._feed_cache: dict[str, tuple[float, Calendar]] = {}
         self.client = caldav.DAVClient(url=ICLOUD_URL, username=apple_id, password=app_password)
         self.principal = self.client.principal()
         self.calendars = self.principal.calendars()
@@ -99,77 +108,88 @@ class ICloudCalendar:
 
     # ------------------------------------------------------------ reading
 
-    def events_between(self, start: datetime, end: datetime) -> list[BusyEvent]:
-        """All event occurrences (recurring ones expanded) overlapping [start, end)."""
-        found: list[BusyEvent] = []
-        for cal in self.check:
-            try:
-                results = cal.search(start=start, end=end, event=True, expand=True)
-            except Exception:
-                # Reminders lists and some shared calendars reject event searches
+    def _feed_icals(self, max_age: float = 120):
+        """Download outside .ics feeds (cached briefly). Yields (name, url, Calendar)."""
+        for name, url in self.feeds:
+            cached = self._feed_cache.get(url)
+            if cached and time.time() - cached[0] < max_age:
+                yield name, url, cached[1]
                 continue
-            for obj in results:
-                ical = obj.icalendar_instance
-                for comp in ical.walk("VEVENT"):
-                    if str(comp.get("STATUS", "")).upper() == "CANCELLED":
-                        continue
-                    if str(comp.get("TRANSP", "")).upper() == "TRANSPARENT":
-                        continue  # marked "free" in Calendar
-                    s, all_day = _to_local(comp.decoded("DTSTART"), self.tz)
-                    if comp.get("DTEND") is not None:
-                        e, _ = _to_local(comp.decoded("DTEND"), self.tz)
-                    elif comp.get("DURATION") is not None:
-                        e = s + comp.decoded("DURATION")
-                    else:
-                        e = s + (timedelta(days=1) if all_day else timedelta(0))
-                    if s < end and e > start:
-                        found.append(BusyEvent(str(comp.get("SUMMARY", "(no title)")),
-                                               s, e, cal.name or "", all_day))
-        found.sort(key=lambda b: b.start)
-        return found
+            try:
+                resp = httpx.get(url, timeout=20, follow_redirects=True)
+                resp.raise_for_status()
+                ical = Calendar.from_ical(resp.content)
+            except Exception as exc:
+                log.warning("could not fetch feed %s: %s", name, exc)
+                if cached:
+                    yield name, url, cached[1]
+                continue
+            self._feed_cache[url] = (time.time(), ical)
+            yield name, url, ical
 
-    def find_occurrences(self, start: datetime, end: datetime,
-                         text: str | None = None) -> list[Occurrence]:
-        """Event occurrences in [start, end), optionally only titles containing `text`."""
+    def _expand(self, ical, start, end, needle, url, cal_name, read_only, out):
+        try:
+            occurrences = recurring_ical_events.of(ical).between(start, end)
+        except Exception as exc:
+            log.warning("could not read events in %s: %s", cal_name, exc)
+            return
+        recurring_uids = {str(c.get("UID")) for c in ical.walk("VEVENT") if c.get("RRULE") is not None}
+        for occ in occurrences:
+            if str(occ.get("STATUS", "")).upper() == "CANCELLED":
+                continue
+            title = str(occ.get("SUMMARY", "(no title)"))
+            if needle and needle not in title.lower():
+                continue
+            s, all_day = _to_local(occ.decoded("DTSTART"), self.tz)
+            if occ.get("DTEND") is not None:
+                e, _ = _to_local(occ.decoded("DTEND"), self.tz)
+            elif occ.get("DURATION") is not None:
+                e = s + occ.decoded("DURATION")
+            else:
+                e = s + (timedelta(days=1) if all_day else timedelta(0))
+            rid = (occ.decoded("RECURRENCE-ID") if occ.get("RECURRENCE-ID") is not None
+                   else occ.decoded("DTSTART"))
+            uid = str(occ.get("UID", ""))
+            free = str(occ.get("TRANSP", "")).upper() == "TRANSPARENT"
+            out[(url, uid, s)] = Occurrence(title, s, e, all_day, uid in recurring_uids, url,
+                                            cal_name, rid, uid, free, read_only)
+
+    def find_occurrences(self, start: datetime, end: datetime, text: str | None = None,
+                         calendars=None, include_feeds: bool = True) -> list[Occurrence]:
+        """Event occurrences overlapping [start, end) across iCloud (and outside feeds),
+        recurring events expanded; optionally only titles containing `text`."""
         found: dict[tuple, Occurrence] = {}
         needle = (text or "").strip().lower()
-        for cal in self.calendars:
+        for cal in (self.calendars if calendars is None else calendars):
             try:
                 objects = cal.search(start=start, end=end, event=True)
             except Exception as exc:
-                log.warning("search failed on %s: %s", cal.name, exc)
+                log.warning("search failed on %s: %s", cal.name, exc)  # e.g. Reminders lists
                 continue
             for obj in objects:
                 try:
                     ical = obj.icalendar_instance
-                    occurrences = recurring_ical_events.of(ical).between(start, end)
                 except Exception as exc:
-                    log.warning("could not read an event in %s: %s", cal.name, exc)
+                    log.warning("could not parse an event in %s: %s", cal.name, exc)
                     continue
-                recurring = any(c.get("RRULE") is not None for c in ical.walk("VEVENT"))
-                for occ in occurrences:
-                    if str(occ.get("STATUS", "")).upper() == "CANCELLED":
-                        continue
-                    title = str(occ.get("SUMMARY", "(no title)"))
-                    if needle and needle not in title.lower():
-                        continue
-                    s, all_day = _to_local(occ.decoded("DTSTART"), self.tz)
-                    if occ.get("DTEND") is not None:
-                        e, _ = _to_local(occ.decoded("DTEND"), self.tz)
-                    elif occ.get("DURATION") is not None:
-                        e = s + occ.decoded("DURATION")
-                    else:
-                        e = s + (timedelta(days=1) if all_day else timedelta(0))
-                    rid = (occ.decoded("RECURRENCE-ID") if occ.get("RECURRENCE-ID") is not None
-                           else occ.decoded("DTSTART"))
-                    url = str(obj.url)
-                    found[(url, s)] = Occurrence(title, s, e, all_day, recurring, url,
-                                                 cal.name or "", rid)
+                self._expand(ical, start, end, needle, str(obj.url), cal.name or "", False, found)
+        if include_feeds:
+            for name, url, ical in self._feed_icals():
+                self._expand(ical, start, end, needle, "ics:" + url, name, True, found)
         return sorted(found.values(), key=lambda o: o.start)
+
+    def events_between(self, start: datetime, end: datetime) -> list[BusyEvent]:
+        """Busy event occurrences overlapping [start, end) in the calendars used for clashes."""
+        return [BusyEvent(o.title, o.start, o.end, o.calendar, o.all_day)
+                for o in self.find_occurrences(start, end, calendars=self.check)
+                if not o.free]
 
     def delete_occurrence(self, occ: Occurrence, mode: str) -> str:
         """mode: "all" (whole event/series), "one" (just this occurrence),
         "future" (this occurrence and every later one). Returns what happened."""
+        if occ.read_only:
+            raise RuntimeError(f"“{occ.title}” is in {occ.calendar}, which I can only read. "
+                               "Delete it in that calendar's app instead.")
         obj = caldav.Event(client=self.client, url=occ.url)
         obj.load()
         ical = obj.icalendar_instance
