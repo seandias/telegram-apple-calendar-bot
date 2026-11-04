@@ -150,7 +150,9 @@ class ICloudCalendar:
             rid = (occ.decoded("RECURRENCE-ID") if occ.get("RECURRENCE-ID") is not None
                    else occ.decoded("DTSTART"))
             uid = str(occ.get("UID", ""))
-            free = str(occ.get("TRANSP", "")).upper() == "TRANSPARENT"
+            # Gmail marks its auto-added events (bookings, flights) as Free; treat events from
+            # outside feeds as busy so they count like any other event
+            free = (str(occ.get("TRANSP", "")).upper() == "TRANSPARENT") and not read_only
             out[(url, uid, s)] = Occurrence(title, s, e, all_day, uid in recurring_uids, url,
                                             cal_name, rid, uid, free, read_only)
 

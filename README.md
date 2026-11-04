@@ -53,7 +53,7 @@ Every 5 minutes the bot checks your calendars. When something appears that you d
 
 Set `NOTIFY_CHAT_ID` (the bot shows yours when you send `/start`) so alerts keep working after restarts. Without it, alerts start once you've messaged the bot.
 
-**Google Calendar (optional):** to include a Google calendar in alerts and clash checks, open Google Calendar on the web, go to Settings, pick the calendar, copy **Secret address in iCal format**, and set `EXTRA_ICS_URLS=Google|<that link>`. It's read-only, and Google can take a while to update that link.
+**Google Calendar (optional):** to include a Google calendar in alerts and clash checks, open Google Calendar on the web, go to Settings, pick the calendar, copy **Secret address in iCal format**, and set `EXTRA_ICS_URLS=Google|<that link>`. Google events then count exactly like Apple ones (shown in lists, alerts and clash checks, always as Busy, even though Gmail marks its automatic events as Free). It's read-only, so delete or edit them in Google, and Google can take a while to update that link.
 
 ## Setup (about 10 minutes)
 
