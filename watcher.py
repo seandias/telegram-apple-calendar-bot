@@ -25,6 +25,8 @@ class Watcher:
     snapshot: dict = field(default_factory=dict)   # key -> occurrence
     seen_uids: set = field(default_factory=set)
     seeded: bool = False
+    missing: dict = field(default_factory=dict)    # key -> polls in a row it's been missing
+    confirm_polls: int = 2                          # missing this many polls = really removed
 
     @staticmethod
     def key(o) -> tuple:
@@ -32,8 +34,11 @@ class Watcher:
         # each occurrence of a repeating event also needs its original start
         return (o.uid or o.url, str(o.rid) if o.recurring else "")
 
-    def diff(self, occurrences, now: datetime) -> list[Change]:
-        """Compare with the previous poll. The first call only records what's there."""
+    def diff(self, occurrences, now: datetime, failed_calendars=frozenset()) -> list[Change]:
+        """Compare with the previous poll. The first call only records what's there.
+
+        `failed_calendars`: calendars that couldn't be read this time; their events are
+        assumed unchanged rather than deleted."""
         current = {}
         for o in occurrences:
             if (o.uid or "").endswith(BOT_UID_SUFFIX):
@@ -60,7 +65,16 @@ class Watcher:
             removed_uids = set()
             for k, old in self.snapshot.items():
                 if k in current or old.start <= now or old.start > horizon:
+                    self.missing.pop(k, None)
                     continue
+                if old.calendar in failed_calendars:
+                    current[k] = old  # couldn't read that calendar: keep it as it was
+                    continue
+                self.missing[k] = self.missing.get(k, 0) + 1
+                if self.missing[k] < self.confirm_polls:
+                    current[k] = old  # might be a blip; wait for the next poll to be sure
+                    continue
+                self.missing.pop(k, None)
                 uid = old.uid or old.url
                 if uid in removed_uids:
                     continue  # one message per series

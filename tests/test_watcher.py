@@ -63,12 +63,14 @@ def test_moved_event_reported():
 
 def test_removed_event_reported():
     w = Watcher(); w.diff(BASE, NOW)
+    w.diff(BASE[1:], NOW)
     ch = w.diff(BASE[1:], NOW)
     assert [(c.kind, c.occ.title) for c in ch] == [("removed", "Dinner FSC")]
 
 
 def test_cancelled_series_one_message():
     w = Watcher(); w.diff(BASE, NOW)
+    w.diff(BASE[:1] + BASE[1:3], NOW)
     ch = w.diff(BASE[:1] + BASE[1:3], NOW)  # footie stopped after 2 weeks
     assert len(ch) == 1 and ch[0].kind == "removed" and ch[0].repeating
 
@@ -85,3 +87,24 @@ def test_moved_single_occurrence_of_series():
     footie[2] = occ("footie", "Thurs footie", datetime(2026, 11, 20, 20), rid=datetime(2026, 11, 19, 21), recurring=True)
     ch = w.diff(BASE[:1] + footie, NOW)
     assert [c.kind for c in ch] == ["changed"] and ch[0].occ.start.day == 20
+
+
+def test_calendar_read_failure_is_not_a_removal():
+    w = Watcher(); w.diff(BASE, NOW)
+    # iCloud failed to return the "Personal" calendar this time
+    assert w.diff([], NOW, failed_calendars={"Personal"}) == []
+    assert w.diff(BASE, NOW) == []  # back to normal: no "new" alerts either
+
+
+def test_one_blip_without_error_is_not_a_removal():
+    w = Watcher(); w.diff(BASE, NOW)
+    assert w.diff([], NOW) == []    # everything missing once (silent partial response)
+    assert w.diff(BASE, NOW) == []  # it was a blip
+
+
+def test_real_removal_reported_after_two_checks():
+    w = Watcher(); w.diff(BASE, NOW)
+    assert w.diff(BASE[1:], NOW) == []
+    ch = w.diff(BASE[1:], NOW)
+    assert [(c.kind, c.occ.title) for c in ch] == [("removed", "Dinner FSC")]
+    assert w.diff(BASE[1:], NOW) == []  # reported once only

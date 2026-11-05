@@ -602,9 +602,13 @@ def _describe(change, clashes) -> str:
 def poll_calendar() -> list[str]:
     cal = get_calendar()
     now = datetime.now(TZ)
-    occs = cal.find_occurrences(now - timedelta(hours=1), now + timedelta(days=watcher.window_days))
+    failed: set = set()
+    occs = cal.find_occurrences(now - timedelta(hours=1), now + timedelta(days=watcher.window_days),
+                                errors=failed)
+    if failed:
+        log.info("watch: couldn't read %s this time; treating as unchanged", ", ".join(sorted(failed)))
     messages = []
-    for ch in watcher.diff(occs, now)[:10]:  # cap to avoid a flood after a big import
+    for ch in watcher.diff(occs, now, failed_calendars=failed)[:10]:  # cap to avoid a flood after a big import
         clashes = _clashes_for(cal, ch.occ) if ch.kind != "removed" else []
         messages.append(_describe(ch, clashes))
     return messages

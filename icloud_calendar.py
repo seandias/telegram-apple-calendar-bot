@@ -82,6 +82,7 @@ class ICloudCalendar:
         self.tz = tz
         self.feeds = feeds or []          # [(name, ics_url)] read-only, e.g. Google Calendar
         self._feed_cache: dict[str, tuple[float, Calendar]] = {}
+        self.feed_errors: set[str] = set()
         self.client = caldav.DAVClient(url=ICLOUD_URL, username=apple_id, password=app_password)
         self.principal = self.client.principal()
         self.calendars = self.principal.calendars()
@@ -110,6 +111,7 @@ class ICloudCalendar:
 
     def _feed_icals(self, max_age: float = 120):
         """Download outside .ics feeds (cached briefly). Yields (name, url, Calendar)."""
+        self.feed_errors = set()
         for name, url in self.feeds:
             cached = self._feed_cache.get(url)
             if cached and time.time() - cached[0] < max_age:
@@ -123,6 +125,8 @@ class ICloudCalendar:
                 log.warning("could not fetch feed %s: %s", name, exc)
                 if cached:
                     yield name, url, cached[1]
+                else:
+                    self.feed_errors.add(name)
                 continue
             self._feed_cache[url] = (time.time(), ical)
             yield name, url, ical
@@ -157,7 +161,8 @@ class ICloudCalendar:
                                             cal_name, rid, uid, free, read_only)
 
     def find_occurrences(self, start: datetime, end: datetime, text: str | None = None,
-                         calendars=None, include_feeds: bool = True) -> list[Occurrence]:
+                         calendars=None, include_feeds: bool = True,
+                         errors: set | None = None) -> list[Occurrence]:
         """Event occurrences overlapping [start, end) across iCloud (and outside feeds),
         recurring events expanded; optionally only titles containing `text`."""
         found: dict[tuple, Occurrence] = {}
@@ -167,6 +172,8 @@ class ICloudCalendar:
                 objects = cal.search(start=start, end=end, event=True)
             except Exception as exc:
                 log.warning("search failed on %s: %s", cal.name, exc)  # e.g. Reminders lists
+                if errors is not None:
+                    errors.add(cal.name or "")
                 continue
             for obj in objects:
                 try:
@@ -178,6 +185,8 @@ class ICloudCalendar:
         if include_feeds:
             for name, url, ical in self._feed_icals():
                 self._expand(ical, start, end, needle, "ics:" + url, name, True, found)
+            if errors is not None:
+                errors |= self.feed_errors
         return sorted(found.values(), key=lambda o: o.start)
 
     def events_between(self, start: datetime, end: datetime) -> list[BusyEvent]:
